@@ -609,3 +609,4 @@ async def get_related_tables(table_name: str, ctx: Context) -> str:
 
 if __name__ == "__main__":
     mcp.run()
+
