@@ -23,7 +23,7 @@ class MCPStdioClient:
     def __init__(self, server_script_path):
         self.server_script_path = server_script_path
         self.process = None
-        self.reques_id = 0
+        self.request_id = 0
         self.tools = []
     
     async def start_server(self):
@@ -59,7 +59,7 @@ class MCPStdioClient:
                 "name": "oracle-mcp-client",
                 "version": "1.0.0"
             }
-        })
+   eibccdcbh     })
         
         print(f"Initialize result received")
         
