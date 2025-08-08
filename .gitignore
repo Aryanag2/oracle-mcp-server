@@ -30,3 +30,10 @@ wheels/
 
 # Virtual environments
 .venv
+.venv/
+.uv/
+uv.lock
+server/.env
+**/__pycache__/
+**/*.pyc
+.DS_Store

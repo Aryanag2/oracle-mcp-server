@@ -1,0 +1,38 @@
+# syntax=docker/dockerfile:1
+FROM ghcr.io/astral-sh/uv:0.6.6-python3.12-bookworm
+
+RUN apt-get update \
+ && apt-get install -y libaio1 unzip curl \
+ && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /opt/oracle
+ARG TARGETARCH
+RUN if [ "$TARGETARCH" = "amd64" ]; then \
+      ORACLE_CLIENT_URL="https://download.oracle.com/otn_software/linux/instantclient/2370000/instantclient-basic-linux.x64-23.7.0.25.01.zip"; \
+    elif [ "$TARGETARCH" = "arm64" ]; then \
+      ORACLE_CLIENT_URL="https://download.oracle.com/otn_software/linux/instantclient/2370000/instantclient-basic-linux.arm64-23.7.0.25.01.zip"; \
+    else echo "Unsupported arch: $TARGETARCH" && exit 1; fi \
+ && curl -L -o instantclient.zip "$ORACLE_CLIENT_URL" \
+ && unzip instantclient.zip && rm instantclient.zip \
+ && echo /opt/oracle/instantclient_23_7 > /etc/ld.so.conf.d/oracle-instantclient.conf \
+ && ldconfig
+
+ENV LD_LIBRARY_PATH=/opt/oracle/instantclient_23_7:$LD_LIBRARY_PATH \
+    ORACLE_HOME=/opt/oracle/instantclient_23_7 \
+    DPI_DEBUG_LEVEL=64 \
+    PYTHONUNBUFFERED=1
+
+WORKDIR /app
+
+# Copy manifests first (so deps layer is cached)
+COPY pyproject.toml /app/pyproject.toml
+COPY uv.lock /app/uv.lock
+RUN uv sync --frozen
+
+# Now copy the rest
+ADD . /app
+
+# WS bridge that launches server/main.py
+EXPOSE 8765
+ENV MCP_WS_PORT=8765
+CMD ["uv", "run", "server/ws_bridge.py"]
