@@ -241,8 +241,11 @@ When answering the user's question:
                     if " with parameters:" in tool_part:
                         tool_name = tool_part.split(" with parameters:")[0].strip()
                         params_str = tool_part.split(" with parameters:")[1].strip()
-                        # Simple parameter parsing (you might want to make this more robust)
-                        params = eval(params_str) if params_str.startswith('{') else {}
+                        # Parse parameters safely as JSON
+                        try:
+                            params = json.loads(params_str)
+                        except json.JSONDecodeError:
+                            params = {}
                     else:
                         tool_name = tool_part.strip()
                         params = {}
