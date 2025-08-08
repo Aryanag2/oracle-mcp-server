@@ -59,7 +59,7 @@ class MCPStdioClient:
                 "name": "oracle-mcp-client",
                 "version": "1.0.0"
             }
-   eibccdcbh     })
+        })
         
         print(f"Initialize result received")
         
