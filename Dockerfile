@@ -41,8 +41,8 @@ RUN uv sync --frozen
 # Set environment for MCP communication
 ENV PYTHONUNBUFFERED=1
 
-WORKDIR /app/server
 # Install package with UV (using --system flag)
 RUN uv pip install --system -e .
 
+WORKDIR /app/server
 CMD ["uv", "run", "main.py"]
