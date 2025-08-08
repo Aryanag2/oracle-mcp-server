@@ -23,3 +23,10 @@ line-length = 88
 [tool.mypy]
 python_version = "3.12"
 strict = true
+
+[tool.setuptools.packages.find]
+include = ["client", "server", "db_context"]
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
