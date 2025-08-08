@@ -18,7 +18,7 @@ services:
     ports:
       - "8765:8765"
     healthcheck:
-      test: ["CMD-SHELL", "python - <<'PY'\nimport asyncio, websockets\nasync def t():\n  async with websockets.connect('ws://127.0.0.1:8765'): pass\nasyncio.run(t())\nPY"]
+      test: ["CMD", "python", "-c", "import socket; s=socket.create_connection(('127.0.0.1',8765),3); s.close()"]
       interval: 10s
       timeout: 5s
       retries: 10
