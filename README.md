@@ -213,6 +213,14 @@ mcp dev main.py
 mcp install main.py
 ```
 
+### Configuring MCP_SERVER_PATH
+
+The included chat client looks for the server script at `server/main.py` by default. To point the client at a different server location, set the `MCP_SERVER_PATH` environment variable:
+
+```bash
+export MCP_SERVER_PATH=/path/to/server/main.py
+```
+
 ### Available Tools
 
 When connected to an AI assistant like GitHub Copilot in VSCode Insiders or Claude, the following tools will be available:

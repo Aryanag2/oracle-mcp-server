@@ -274,7 +274,7 @@ When answering the user's question:
 
 async def main():
     """Main chat loop"""
-    server_script = "/Users/aryangosaliya/Desktop/oracle-mcp-server/server/main.py"
+    server_script = os.getenv("MCP_SERVER_PATH", "server/main.py")
     
     # Initialize MCP client
     print("🚀 Starting Oracle MCP Chat Client...")

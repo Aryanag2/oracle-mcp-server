@@ -21,16 +21,19 @@ def test_oracle_mcp_server():
     os.environ['CACHE_DIR'] = '.cache'
     
     print("✅ Environment variables set")
-    
+
     # Start the server process
     print("🚀 Starting MCP server...")
+    server_script = os.getenv("MCP_SERVER_PATH", "server/main.py")
+    server_dir = os.path.dirname(server_script)
+    script_name = os.path.basename(server_script)
     process = subprocess.Popen(
-        ['uv', 'run', 'main.py'],
+        ['uv', 'run', script_name],
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
-        cwd='/Users/aryangosaliya/Desktop/oracle-mcp-server'
+        cwd=server_dir
     )
     
     # Wait for initialization
