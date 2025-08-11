@@ -7,9 +7,10 @@ dependencies = [
   "mcp>=1.2.1",
   "oracledb>=2.0.0",
   "python-dotenv>=1.0.0",
-  "websockets>=12.0",
+  "httpx>=0.27.0",  # Add this for HTTP client
+  "uvicorn>=0.34.0",  # Add this for HTTP server
   "langchain>=0.3",
-  "langchain-community>=0.3",   # <-- add this
+  "langchain-community>=0.3",
   "oci>=2.132.0",
   "requests>=2.32"
 ]

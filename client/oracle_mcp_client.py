@@ -2,47 +2,34 @@
 import asyncio
 import json
 import os
-
-import websockets
+import httpx
 from oci_generative_ai import ChatOCIGenAI
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 from langchain.prompts import ChatPromptTemplate
 
-# ---------------------------------------------------------------------
-# Oracle Gen AI (hardcoded as requested)
-# ---------------------------------------------------------------------
 model = ChatOCIGenAI(
-    compartment_id="ocid1.tenancy.oc1..aaaaaaaahzy3x4boh7ipxyft2rowu2xeglvanlfewudbnueugsieyuojkldq",
-    auth_type="SECURITY_TOKEN",
-    auth_profile="aryan-chicago",
-    model_id="openai.gpt-4.1-mini",
-    service_endpoint="https://inference.generativeai.us-chicago-1.oci.oraclecloud.com",
+    compartment_id=os.getenv("OCI_COMPARTMENT_ID", "ocid1.tenancy.oc1..aaaaaaaahzy3x4boh7ipxyft2rowu2xeglvanlfewudbnueugsieyuojkldq"),
+    auth_type=os.getenv("OCI_AUTH_TYPE", "SECURITY_TOKEN"),
+    auth_profile=os.getenv("OCI_AUTH_PROFILE", "aryan-chicago"),
+    model_id=os.getenv("OCI_MODEL_ID", "openai.gpt-4.1-mini"),
+    service_endpoint=os.getenv("OCI_ENDPOINT", "https://inference.generativeai.us-chicago-1.oci.oraclecloud.com"),
     model_kwargs={"temperature": 0, "max_tokens": 4096},
 )
 
-# ---------------------------------------------------------------------
-# Transport config
-# ---------------------------------------------------------------------
-MCP_SERVER_WS_URL = os.getenv("MCP_SERVER_WS_URL", "ws://mcp-server:8765")
+MCP_SERVER_URL = os.getenv("MCP_SERVER_URL", "http://oracle-mcp:8000")
 
 
-class MCPWebSocketClient:
-    """
-    Minimal WebSocket JSON-RPC client for MCP.
-    Assumes the server-side ws_bridge forwards one JSON message per recv().
-    """
-
-    def __init__(self, ws_url: str):
-        self.ws_url = ws_url
-        self.ws = None
-        self.request_id = 0
+class MCPHTTPClient:
+    def __init__(self, base_url: str):
+        self.base_url = base_url.rstrip('/')
+        self.client = None
         self.tools = []
-
+        self.request_id = 0
+        
     async def connect(self):
-        print(f"🔌 Connecting to MCP server at {self.ws_url}")
-        self.ws = await websockets.connect(self.ws_url)
-        await asyncio.sleep(0.3)
-
+        print(f"🔌 Connecting to MCP server at {self.base_url}")
+        self.client = httpx.AsyncClient(timeout=30.0)
+        
         # Initialize MCP session
         init_result = await self.send_request(
             "initialize",
@@ -52,43 +39,64 @@ class MCPWebSocketClient:
                 "clientInfo": {"name": "oracle-mcp-client", "version": "1.0.0"},
             },
         )
-        _ = init_result  # not used, but kept for clarity
+        
         await self.send_notification("notifications/initialized")
-
-        # Give the backend a moment to warm up (db cache, etc.)
+        
+        # Give the backend a moment to warm up
         await asyncio.sleep(1.0)
-
+        
+        # Load tools
         tools_result = await self.list_tools()
         self.tools = tools_result.get("tools", [])
         print(f"✅ Loaded {len(self.tools)} tools")
 
     async def send_request(self, method, params=None):
-        if not self.ws:
-            raise RuntimeError("WebSocket not connected")
-
+        if not self.client:
+            raise RuntimeError("HTTP client not connected")
+        
         self.request_id += 1
-        req = {"jsonrpc": "2.0", "id": self.request_id, "method": method, "params": params or {}}
-        await self.ws.send(json.dumps(req))
-
+        req = {
+            "jsonrpc": "2.0",
+            "id": self.request_id,
+            "method": method,
+            "params": params or {}
+        }
+        
         try:
-            msg = await asyncio.wait_for(self.ws.recv(), timeout=30.0)
-        except asyncio.TimeoutError:
+            response = await self.client.post(
+                f"{self.base_url}/mcp/v1/messages",
+                json=req
+            )
+            response.raise_for_status()
+            resp = response.json()
+            
+            if "error" in resp:
+                raise RuntimeError(f"Server error: {resp['error']}")
+            return resp.get("result")
+            
+        except httpx.TimeoutException:
             raise RuntimeError(f"Timeout waiting for response to method={method}")
-
-        try:
-            resp = json.loads(msg)
-        except json.JSONDecodeError:
-            raise RuntimeError(f"Invalid JSON response from server: {msg}")
-
-        if "error" in resp:
-            raise RuntimeError(f"Server error: {resp['error']}")
-        return resp.get("result")
+        except httpx.HTTPStatusError as e:
+            raise RuntimeError(f"HTTP error: {e.response.status_code}")
 
     async def send_notification(self, method, params=None):
-        if not self.ws:
-            raise RuntimeError("WebSocket not connected")
-        note = {"jsonrpc": "2.0", "method": method, "params": params or {}}
-        await self.ws.send(json.dumps(note))
+        if not self.client:
+            raise RuntimeError("HTTP client not connected")
+        
+        note = {
+            "jsonrpc": "2.0",
+            "method": method,
+            "params": params or {}
+        }
+        
+        try:
+            await self.client.post(
+                f"{self.base_url}/mcp/v1/messages",
+                json=note
+            )
+        except Exception as e:
+            # Notifications are fire-and-forget
+            print(f"Warning: notification failed: {e}")
 
     async def list_tools(self):
         return await self.send_request("tools/list")
@@ -96,28 +104,27 @@ class MCPWebSocketClient:
     async def call_tool(self, name, arguments=None):
         print(f"🔧 Calling tool: {name}")
         try:
-            return await self.send_request("tools/call", {"name": name, "arguments": arguments or {}})
+            return await self.send_request("tools/call", {
+                "name": name,
+                "arguments": arguments or {}
+            })
         except Exception as e:
             return {"error": str(e)}
 
     async def close(self):
-        if self.ws:
-            await self.ws.close()
-            self.ws = None
+        if self.client:
+            await self.client.aclose()
+            self.client = None
 
 
 class OracleMCPChat:
     """
     Wraps LLM prompting + MCP tool orchestration.
-    The model is instructed to output lines like:
-      CALL_TOOL: tool_name with parameters: {"param":"value"}
-    which this class detects and executes via MCPWebSocketClient.
     """
-
-    def __init__(self, mcp_client: MCPWebSocketClient):
+    
+    def __init__(self, mcp_client: MCPHTTPClient):
         self.mcp_client = mcp_client
         self.conversation_history = []
-
         self.system_message = (
             "You are an Oracle database assistant with access to MCP tools for querying "
             "and analyzing Oracle databases.\n\nAvailable tools and their purposes:\n"
@@ -156,7 +163,7 @@ When answering the user's question:
 2. If a tool is required, write a line exactly like:
    CALL_TOOL: tool_name with parameters: {{"param1": "value1", "param2": "value2"}}
    - Always use explicit values (no Python variables).
-   - For broad queries (like “what tables exist”), you may use: {{"search_term": "%"}}
+   - For broad queries (like "what tables exist"), you may use: {{"search_term": "%"}}
    - Wrap all strings in quotes.
    - If no parameters are needed, use an empty dict: {{}}
 3. After tool output, explain the result in simple terms.
@@ -223,8 +230,8 @@ When answering the user's question:
 
 
 async def main():
-    print("🚀 Starting Oracle MCP Chat Client (WebSocket mode)…")
-    mcp_client = MCPWebSocketClient(MCP_SERVER_WS_URL)
+    print("🚀 Starting Oracle MCP Chat Client (HTTP mode)…")
+    mcp_client = MCPHTTPClient(MCP_SERVER_URL)
 
     try:
         await mcp_client.connect()

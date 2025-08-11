@@ -608,5 +608,10 @@ async def get_related_tables(table_name: str, ctx: Context) -> str:
         return f"Error getting related tables: {str(e)}"
 
 if __name__ == "__main__":
-    mcp.run()
+    import uvicorn
+    from mcp.server.fastmcp import get_app
+    
+    app = get_app(mcp)
+    uvicorn.run(app, host="0.0.0.0", port=8000)
+
 

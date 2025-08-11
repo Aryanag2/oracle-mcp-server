@@ -1,50 +1,27 @@
 version: "3.8"
 
 services:
-  mcp-server:
+  oracle-mcp:
     build:
       context: .
-      dockerfile: Dockerfile.server
+      dockerfile: Dockerfile.server  # Use server dockerfile
     env_file:
       - ./server/.env
     environment:
       - CACHE_DIR=/var/cache/oracle-mcp
       - TARGET_SCHEMA=${TARGET_SCHEMA:-}
       - THICK_MODE=${THICK_MODE:-0}
-      - ORACLE_CLIENT_LIB_DIR=${ORACLE_CLIENT_LIB_DIR:-}
-      - MCP_WS_PORT=8765
     volumes:
       - mcp_cache:/var/cache/oracle-mcp
+      - ~/.oci:/root/.oci:ro
     ports:
-      - "8765:8765"
+      - "8000:8000"
+    command: ["python", "server/main.py"]  # Run the server directly
     healthcheck:
-      test: ["CMD", "python", "-c", "import socket; s=socket.create_connection(('127.0.0.1',8765),3); s.close()"]
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 10s
       timeout: 5s
-      retries: 10
-
-
-  mcp-client:
-    build:
-      context: .
-    # (Dockerfile.client already set)
-      dockerfile: Dockerfile.client
-    depends_on:
-      mcp-server:
-        condition: service_healthy
-    environment:
-      - MCP_SERVER_WS_URL=ws://mcp-server:8765
-      - OCI_COMPARTMENT_OCID=${OCI_COMPARTMENT_OCID}
-      - OCI_AUTH_TYPE=${OCI_AUTH_TYPE:-SECURITY_TOKEN}
-      - OCI_AUTH_PROFILE=${OCI_AUTH_PROFILE:-oc1}
-      - OCI_ENDPOINT=${OCI_ENDPOINT}
-      - OCI_MODEL_ID=${OCI_MODEL_ID}
-    volumes:
-      - ~/.oci:/root/.oci:ro
-    tty: true           
-    stdin_open: true     
-
-    command: ["uv", "run", "client/oracle_mcp_client.py"]
+      retries: 5
 
 volumes:
   mcp_cache:
