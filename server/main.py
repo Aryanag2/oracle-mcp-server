@@ -1,4 +1,4 @@
-from mcp.server.fastmcp import FastMCP, Context
+from fastmcp import FastMCP, Context  # This is FastMCP 2.0+
 import json
 import os
 import sys
@@ -608,4 +608,4 @@ async def get_related_tables(table_name: str, ctx: Context) -> str:
         return f"Error getting related tables: {str(e)}"
     
 if __name__ == "__main__":
-    mcp.run()
+    mcp.run(transport="http", host="0.0.0.0", port=8000)

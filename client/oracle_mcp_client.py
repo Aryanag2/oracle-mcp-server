@@ -64,7 +64,7 @@ class MCPHTTPClient:
         
         try:
             response = await self.client.post(
-                f"{self.base_url}/mcp/v1/messages",
+                f"{self.base_url}/mcp",  # Add /mcp to the path
                 json=req
             )
             response.raise_for_status()
@@ -79,6 +79,8 @@ class MCPHTTPClient:
         except httpx.HTTPStatusError as e:
             raise RuntimeError(f"HTTP error: {e.response.status_code}")
 
+
+    # Update the send_notification method:
     async def send_notification(self, method, params=None):
         if not self.client:
             raise RuntimeError("HTTP client not connected")
@@ -91,13 +93,13 @@ class MCPHTTPClient:
         
         try:
             await self.client.post(
-                f"{self.base_url}/mcp/v1/messages",
+                f"{self.base_url}/mcp",  # Add /mcp to the path
                 json=note
             )
         except Exception as e:
             # Notifications are fire-and-forget
             print(f"Warning: notification failed: {e}")
-
+            
     async def list_tools(self):
         return await self.send_request("tools/list")
 
