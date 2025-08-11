@@ -1,11 +1,11 @@
-# HOWTO: Run the Oracle MCP (Server + Client) Project
+# HOWTO: Run the Oracle MCP Server
 
-This project runs as **two containers** via Docker Compose:
+This project now uses a **single container** via Docker Compose to host the MCP
+server. Run your client directly on your machine (or any other host) and point
+it to the server's HTTP endpoint.
 
-- **oracle-mcp** — your MCP server (`server/main.py`) running as an HTTP service on port 8000
-- **mcp-client** — your chat client (`client/oracle_mcp_client.py`) that talks to the server over HTTP and uses Oracle Gen AI
-
-> The client **does not** spawn the server. They're separate processes/containers communicating via HTTP.
+> The server runs inside Docker; the client runs outside and communicates over
+> HTTP.
 
 ---
 
@@ -28,8 +28,7 @@ This project runs as **two containers** via Docker Compose:
 │  └─ main.py
 ├─ docker-compose.yml
 ├─ Dockerfile.server
-├─ Dockerfile.client
-├─ Dockerfile.unified          # optional, not required for two-container flow
+├─ Dockerfile.unified          # optional
 ├─ .dockerignore
 ├─ .gitignore
 └─ server/.env.example
@@ -60,15 +59,17 @@ CACHE_DIR=/var/cache/oracle-mcp
 From the repo root:
 
 ```bash
-docker compose up --build
+docker compose up --build -d
 ```
 
-What you should see:
-- `oracle-mcp` logs: the HTTP server starts and prints something like  
-  `INFO: Uvicorn running on http://0.0.0.0:8000`
-- `mcp-client` logs: connects to `http://oracle-mcp:8000`, initializes, loads MCP tools, and shows a prompt.
+This builds the image and starts the `oracle-mcp` service in the background.
+The server listens on port `8000` and is mapped to the same port on the host.
 
-Stop everything:
+If you're running on a cloud compute instance, make sure your firewall or
+security groups allow inbound traffic on port `8000`. External clients can then
+connect using `http://<public-ip>:8000/mcp/`.
+
+Stop the container:
 
 ```bash
 docker compose down
@@ -80,7 +81,6 @@ docker compose down
 
 ### Ports & URLs
 - Server HTTP port: `8000` (exported in `docker-compose.yml`)
-- Client to server URL: `MCP_SERVER_URL=http://oracle-mcp:8000`
 
 ### Oracle Client (thick mode)
 - The server image already installs **Oracle Instant Client 23.7**.
@@ -88,12 +88,14 @@ docker compose down
   If you need a custom client path, set `ORACLE_CLIENT_LIB_DIR` and ensure `LD_LIBRARY_PATH`.
 
 ### OCI credentials (client)
-- Your `~/.oci` folder is mounted into the client as read-only.
-- The sample client hardcodes:
-  - `auth_profile=aryan-chicago`
-  - `model_id=openai.gpt-4.1-mini`
-  - `service_endpoint=https://inference.generativeai.us-chicago-1.oci.oraclecloud.com`
-- You still need valid tokens/keys in `~/.oci` for requests to succeed.
+Run the Python client directly on your host and ensure it has access to your
+OCI credentials at `~/.oci`. Point the client to the server's public URL, for
+example:
+
+```bash
+export MCP_SERVER_URL="http://<public-ip>:8000"
+python client/oracle_mcp_client.py
+```
 
 ---
 
@@ -103,7 +105,6 @@ Follow logs:
 
 ```bash
 docker compose logs -f oracle-mcp
-docker compose logs -f mcp-client
 ```
 
 Rebuild after code changes:
@@ -117,7 +118,6 @@ Open an interactive shell:
 
 ```bash
 docker compose exec oracle-mcp bash
-docker compose exec mcp-client bash
 ```
 
 (If your base image doesn't include `bash`, use `sh` instead.)
@@ -161,19 +161,18 @@ curl -X POST http://localhost:8000/mcp/v1/messages \
 **Client can't connect (connection refused)**
 - Confirm `oracle-mcp` logs show the HTTP server is listening on `0.0.0.0:8000`.
 - Make sure the server container is healthy: `docker compose ps`
-- Verify the service name in docker-compose matches the URL in the client (`oracle-mcp`)
+- If connecting from another machine, ensure your firewall or security group allows inbound traffic on port `8000` and that your client uses the correct public IP.
 
 **ORA-/connect errors**
 - Verify `ORACLE_CONNECTION_STRING` in `server/.env` (host, port, service name, TCPS).
 - If using TCPS (ADB), confirm outbound 1522 is open on your network.
 
 **OCI auth errors**
-- Check `~/.oci/config` and tokens. The client mounts `~/.oci` from the host.
-- Ensure the hardcoded profile name exists in your config.
+- Check `~/.oci/config` and tokens. Ensure the profile name expected by the client exists in your config.
 
 **Module not found (`httpx`, `langchain`, etc.)**
 - Ensure `pyproject.toml` includes needed deps; rebuild with `--no-cache`.
-- The images run `uv sync --frozen` at build time; if deps changed, rebuild.
+- The image runs `uv sync --frozen` at build time; if deps changed, rebuild.
 
 **HTTP 404 or invalid JSON errors**
 - The server expects MCP protocol messages at `/mcp/v1/messages` endpoint
@@ -181,57 +180,9 @@ curl -X POST http://localhost:8000/mcp/v1/messages \
 - Check server logs for detailed error messages
 
 **MCP tools not loading**
-- Check that the server started successfully and the database connection works
-- Verify the tools/list endpoint returns the expected tools
-- Look for database initialization errors in the server logs
+- Check that the server started successfully and the database connection works.
+- Verify the `tools/list` endpoint returns the expected tools.
+- Look for database initialization errors in the server logs.
 
 ---
-
-## 7) Optional: Single-image (not required here)
-
-If you ever want the client to spawn the server in a **single** container, you can use `Dockerfile.unified` and run with `-e ROLE=client` and `LOCAL_SPAWN=1`. This is **not** used in the two-container setup.
-
----
-
-## 8) Local (no Docker)
-
-If you want to run locally:
-
-```bash
-# In one terminal (server):
-cd server
-export ORACLE_CONNECTION_STRING="..."
-uv run python main.py  # starts HTTP server on localhost:8000
-
-# In another terminal (client):
-cd client
-export MCP_SERVER_URL=http://localhost:8000
-uv run python oracle_mcp_client.py
-```
-
----
-
-## 9) Quick checklist
-
-- [ ] `server/.env` exists on host with the correct connection string  
-- [ ] `server/main.py` present; server starts HTTP service on port 8000
-- [ ] `~/.oci` exists with the profile used by the client  
-- [ ] `docker compose up --build` shows server HTTP listening and client tools loaded
-- [ ] Client can connect to `http://oracle-mcp:8000/mcp/v1/messages`
-
----
-
-## 10) Architecture Notes
-
-**HTTP MCP Protocol**
-- The server runs as a standard HTTP service using FastMCP and Uvicorn
-- Client communicates using JSON-RPC 2.0 over HTTP POST requests
-- All MCP protocol messages go to the `/mcp/v1/messages` endpoint
-- This is simpler and more standard than WebSocket-based communication
-
-**Container Communication**
-- Both containers are on the same Docker network
-- Client uses the service name `oracle-mcp` to reach the server
-- Port 8000 is exposed for external access if needed
-
 Happy hacking 🚀
