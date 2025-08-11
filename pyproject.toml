@@ -5,15 +5,17 @@ description = "MCP server for Oracle database schema context retrieval"
 requires-python = ">=3.12"
 dependencies = [
   "mcp>=1.2.1",
+  "fastmcp>=2.0.0,<3", # Add this line
   "oracledb>=2.0.0",
   "python-dotenv>=1.0.0",
-  "httpx>=0.27.0",  # Add this for HTTP client
-  "uvicorn>=0.34.0",  # Add this for HTTP server
+  "httpx>=0.27.0",
+  "uvicorn>=0.34.0",
   "langchain>=0.3",
   "langchain-community>=0.3",
   "oci>=2.132.0",
-  "requests>=2.32"
+  "requests>=2.32",
 ]
+
 
 [project.optional-dependencies]
 dev = [

@@ -2,10 +2,10 @@
 
 This project runs as **two containers** via Docker Compose:
 
-- **mcp-server** — launches your existing `server/main.py` behind a tiny WebSocket bridge (`ws_bridge.py`).  
-- **mcp-client** — your chat client (`client/oracle_mcp_client.py`) that talks to the server over WebSocket and uses Oracle Gen AI.
+- **oracle-mcp** — your MCP server (`server/main.py`) running as an HTTP service on port 8000
+- **mcp-client** — your chat client (`client/oracle_mcp_client.py`) that talks to the server over HTTP and uses Oracle Gen AI
 
-> The client **does not** spawn the server. They’re separate processes/containers.
+> The client **does not** spawn the server. They're separate processes/containers communicating via HTTP.
 
 ---
 
@@ -25,8 +25,7 @@ This project runs as **two containers** via Docker Compose:
 ├─ client/
 │  └─ oracle_mcp_client.py
 ├─ server/
-│  ├─ main.py
-│  └─ ws_bridge.py
+│  └─ main.py
 ├─ docker-compose.yml
 ├─ Dockerfile.server
 ├─ Dockerfile.client
@@ -65,9 +64,9 @@ docker compose up --build
 ```
 
 What you should see:
-- `mcp-server` logs: the WebSocket bridge prints something like  
-  `[ws_bridge] listening on ws://0.0.0.0:8765`
-- `mcp-client` logs: connects to `ws://mcp-server:8765`, initializes, loads MCP tools, and shows a prompt.
+- `oracle-mcp` logs: the HTTP server starts and prints something like  
+  `INFO: Uvicorn running on http://0.0.0.0:8000`
+- `mcp-client` logs: connects to `http://oracle-mcp:8000`, initializes, loads MCP tools, and shows a prompt.
 
 Stop everything:
 
@@ -80,8 +79,8 @@ docker compose down
 ## 3) Configuration knobs
 
 ### Ports & URLs
-- Server WS port: `8765` (exported in `docker-compose.yml`)
-- Client to server URL: `MCP_SERVER_WS_URL=ws://mcp-server:8765`
+- Server HTTP port: `8000` (exported in `docker-compose.yml`)
+- Client to server URL: `MCP_SERVER_URL=http://oracle-mcp:8000`
 
 ### Oracle Client (thick mode)
 - The server image already installs **Oracle Instant Client 23.7**.
@@ -103,7 +102,7 @@ docker compose down
 Follow logs:
 
 ```bash
-docker compose logs -f mcp-server
+docker compose logs -f oracle-mcp
 docker compose logs -f mcp-client
 ```
 
@@ -117,38 +116,52 @@ docker compose up
 Open an interactive shell:
 
 ```bash
-docker compose exec mcp-server bash
+docker compose exec oracle-mcp bash
 docker compose exec mcp-client bash
 ```
 
-(If your base image doesn’t include `bash`, use `sh` instead.)
+(If your base image doesn't include `bash`, use `sh` instead.)
 
 ---
 
-## 5) Healthcheck note
+## 5) Testing the MCP server directly
 
-If your server image doesn’t have `bash`, switch the healthcheck to Python:
+You can test the HTTP MCP server directly using curl or any HTTP client:
 
-```yaml
-healthcheck:
-  test: ["CMD-SHELL", "python -c "import socket; s=socket.create_connection(('127.0.0.1',8765),3); s.close()""]
-  interval: 10s
-  timeout: 3s
-  retries: 20
+```bash
+# Test initialization
+curl -X POST http://localhost:8000/mcp/v1/messages \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "initialize",
+    "params": {
+      "protocolVersion": "2024-11-05",
+      "capabilities": {"roots": {"listChanged": true}, "sampling": {}},
+      "clientInfo": {"name": "test-client", "version": "1.0.0"}
+    }
+  }'
+
+# List available tools
+curl -X POST http://localhost:8000/mcp/v1/messages \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 2,
+    "method": "tools/list",
+    "params": {}
+  }'
 ```
-
-Or install `bash` in `Dockerfile.server`.
 
 ---
 
 ## 6) Troubleshooting
 
-**Client can’t connect (healthcheck failing / connection refused)**
-- Confirm `mcp-server` logs show the bridge is listening on `0.0.0.0:8765`.
-- Make sure `ws_bridge.py` is present and the server `CMD` is:
-  ```dockerfile
-  CMD ["uv", "run", "server/ws_bridge.py"]
-  ```
+**Client can't connect (connection refused)**
+- Confirm `oracle-mcp` logs show the HTTP server is listening on `0.0.0.0:8000`.
+- Make sure the server container is healthy: `docker compose ps`
+- Verify the service name in docker-compose matches the URL in the client (`oracle-mcp`)
 
 **ORA-/connect errors**
 - Verify `ORACLE_CONNECTION_STRING` in `server/.env` (host, port, service name, TCPS).
@@ -158,13 +171,19 @@ Or install `bash` in `Dockerfile.server`.
 - Check `~/.oci/config` and tokens. The client mounts `~/.oci` from the host.
 - Ensure the hardcoded profile name exists in your config.
 
-**Module not found (`websockets`, `langchain`, etc.)**
+**Module not found (`httpx`, `langchain`, etc.)**
 - Ensure `pyproject.toml` includes needed deps; rebuild with `--no-cache`.
 - The images run `uv sync --frozen` at build time; if deps changed, rebuild.
 
-**Invalid JSON / protocol issues**
-- The bridge passes one JSON message per WebSocket frame.
-- Make sure your MCP server prints **newline-delimited JSON** responses (which the bridge forwards as frames).
+**HTTP 404 or invalid JSON errors**
+- The server expects MCP protocol messages at `/mcp/v1/messages` endpoint
+- Ensure you're sending proper JSON-RPC 2.0 formatted requests
+- Check server logs for detailed error messages
+
+**MCP tools not loading**
+- Check that the server started successfully and the database connection works
+- Verify the tools/list endpoint returns the expected tools
+- Look for database initialization errors in the server logs
 
 ---
 
@@ -182,11 +201,11 @@ If you want to run locally:
 # In one terminal (server):
 cd server
 export ORACLE_CONNECTION_STRING="..."
-uv run python ws_bridge.py  # listens on ws://localhost:8765
+uv run python main.py  # starts HTTP server on localhost:8000
 
 # In another terminal (client):
 cd client
-export MCP_SERVER_WS_URL=ws://localhost:8765
+export MCP_SERVER_URL=http://localhost:8000
 uv run python oracle_mcp_client.py
 ```
 
@@ -195,8 +214,24 @@ uv run python oracle_mcp_client.py
 ## 9) Quick checklist
 
 - [ ] `server/.env` exists on host with the correct connection string  
-- [ ] `server/ws_bridge.py` present; server `CMD` points to it  
+- [ ] `server/main.py` present; server starts HTTP service on port 8000
 - [ ] `~/.oci` exists with the profile used by the client  
-- [ ] `docker compose up --build` shows server WS listening and client tools loaded
+- [ ] `docker compose up --build` shows server HTTP listening and client tools loaded
+- [ ] Client can connect to `http://oracle-mcp:8000/mcp/v1/messages`
+
+---
+
+## 10) Architecture Notes
+
+**HTTP MCP Protocol**
+- The server runs as a standard HTTP service using FastMCP and Uvicorn
+- Client communicates using JSON-RPC 2.0 over HTTP POST requests
+- All MCP protocol messages go to the `/mcp/v1/messages` endpoint
+- This is simpler and more standard than WebSocket-based communication
+
+**Container Communication**
+- Both containers are on the same Docker network
+- Client uses the service name `oracle-mcp` to reach the server
+- Port 8000 is exposed for external access if needed
 
 Happy hacking 🚀

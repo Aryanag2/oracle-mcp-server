@@ -32,7 +32,6 @@ RUN uv sync --frozen
 # Now copy the rest
 ADD . /app
 
-# WS bridge that launches server/main.py
-EXPOSE 8765
-ENV MCP_WS_PORT=8765
-CMD ["uv", "run", "server/ws_bridge.py"]
+# HTTP server on port 8000
+EXPOSE 8000
+CMD ["uv", "run", "server/main.py"]

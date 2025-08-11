@@ -17,6 +17,7 @@ RUN uv sync --frozen
 ADD . /app
 
 # Defaults (override at runtime)
-ENV MCP_SERVER_WS_URL=ws://mcp-server:8765
+ENV MCP_SERVER_URL=http://oracle-mcp:8000
+
 
 CMD ["uv", "run", "client/oracle_mcp_client.py"]
